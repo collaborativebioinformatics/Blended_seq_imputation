@@ -1,10 +1,10 @@
 # Blended_seq_imputation
+### Contributors
 ## Introduction
-## Contributors
 ## Methods
 ### Data
 ### Workflow
-![flowchart](flowchartHackathon030325.png)
+<img src="flowchartHackathon030325.png" alt="flowchart" width="200"/>
 ## Results
 ## Discussion
 ## References
