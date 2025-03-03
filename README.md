@@ -4,7 +4,7 @@
 ## Methods
 ### Data
 ### Workflow
-![flowchart](./flowchart.png)
+![flowchart](figures/flowchart.png)
 ## Results
 ## Discussion
 ## References
