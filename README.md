@@ -4,7 +4,7 @@
 ## Methods
 ### Data
 ### Workflow
-<img src="flowchartHackathon030325.png" alt="flowchart" width="200"/>
+<img src="flowchartHackathon030325.png" alt="flowchart" width="500"/>
 ## Results
 ## Discussion
 ## References
