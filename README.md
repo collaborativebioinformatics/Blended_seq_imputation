@@ -7,6 +7,9 @@ Yuning Zheng
 
 ## Introduction
 
+Low pass WGS and now Blended Genome Exome data requires an imputation step to get reliable variant calls for commoon avariants across the whole 
+genome. Imputation is dependent on high quality reference panels consisting of large samples of diverse ancestry. In this project, we will generate 
+a nextflow workflow to generate an imputation reference panel on large scale cohort files. 
 
 ## Methods
 Using the Human Genome Diversity Project + 1000 Genomes combined, phased  dataset, we will implement a nextflow pipeline consisting of 3 steps 
