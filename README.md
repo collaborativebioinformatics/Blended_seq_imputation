@@ -1,9 +1,9 @@
 # Blended_seq_imputation
 ### Contributors
-Phil Greer
-Kara 
-Tien Li
-Yuning Zheng
+* Phil Greer
+* Kara 
+* Tien Ly
+* Yuning Zheng
 
 ## Introduction
 
