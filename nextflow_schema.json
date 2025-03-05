@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema",
+  "$id": "https://raw.githubusercontent.com/Blended_seq_imputation/master/nextflow_schema.json",
+  "title": "Nextflow pipeline parameters",
+  "description": "This pipeline uses Nextflow with bcftools and GLIMPSE2 to generate an imputaion panel for lpwgs or BGE imputation. The JSON Schema was built using the nf-core pipeline schema builder.",
+  "type": "object",
+  "definitions": {
+      "inputs": {
+          "title": "Inputs",
+          "type": "object",
+          "description": "",
+          "default": "",
+          "properties": {
+              "input_bcf_list": {
+                  "type": "string",
+                  "description": "Input samplesheet in TSV format",
+                  "format": "file-path"
+              },
+              "map_dir": {
+                  "type": "string",
+                  "description": "directory for chromosome maps with wildcard",
+                  "format": "directory-path"
+              },             
+              "output_dir": {
+                  "type": "string",
+                  "format": "directory-path",
+                  "description": "Local path to output directory",
+                  "default": "./results"
+              },
+              "threads": {
+                  "type": "integer",
+                  "description": "number of threads for processing",
+                  "default": "4"
+              }
+          }
+      }
+  },
+  "allOf": [
+      {
+          "$ref": "#/definitions/inputs"
+      }
+  ]
+}
