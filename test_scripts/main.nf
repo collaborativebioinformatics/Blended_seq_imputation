@@ -1,6 +1,6 @@
 #!/usr/bin/env nextflow
 
-// Modular BGE Imputation Reference Panel Pipeline
+// Modular Imputation Reference Panel Pipeline
 // Date: 2025-03-04
 
 // Enable DSL2 for modularity
@@ -89,7 +89,9 @@ process convertMultiallelicToBiallelic {
     """
     bcftools norm -m-any -Ob -o ${chr}.biallelic.bcf ${bcf_file}
     bcftools index ${chr}.biallelic.bcf
+    
     """
+    
 }
 
 // Module: Extract site information
