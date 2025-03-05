@@ -27,7 +27,7 @@ Our pipeline utilizes the combined, phased dataset from the HGDP and the 1000 Ge
 The software tools employed include [bcftools](https://samtools.github.io/bcftools/), [GLIMPSE2](https://odelaneau.github.io/GLIMPSE/), [Nextflow](https://github.com/nextflow-io/nextflow), and [Docker](https://github.com/docker).
 
 ### Workflow
-![flowchart](figures/nextflow.drawio.png)
+![flowchart](figures/nextflow.drawio_whitebackground.png)
 
 ## Results
 
