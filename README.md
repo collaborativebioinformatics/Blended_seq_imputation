@@ -30,6 +30,7 @@ The software tools employed include [bcftools](https://samtools.github.io/bcftoo
 ![flowchart](figures/nextflow.drawio_whitebackground.png)
 
 ## Results
+[Slides](https://docs.google.com/presentation/d/1FQdrbxCqVt1jzBpF6MPERIgx8S5RtXtNTYlFa6TiLg4/edit?usp=sharing)
 
 ## Discussion
 
