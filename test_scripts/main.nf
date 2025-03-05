@@ -1,13 +1,13 @@
 #!/usr/bin/env nextflow
 
 // Modular BGE Imputation Reference Panel Pipeline
+// Author: PJ Greer (modified)
 // Date: 2025-03-04
 
 // Enable DSL2 for modularity
 nextflow.enable.dsl=2
 
 // Import modules
-include { validateInputs } from './modules/validate_inputs'
 include { convertMultiallelic } from './modules/convert_multiallelic'
 include { extractSiteInfo } from './modules/extract_site_info'
 include { createChunks } from './modules/create_chunks'
@@ -18,7 +18,6 @@ include { createSummary } from './modules/create_summary'
 params {
     // Input parameters with sensible defaults
     input_pattern = null               // Required: Input pattern for BCF files (e.g., "/data/samples_chr*.bcf")
-    input_index_pattern = null         // Optional: Input pattern for index files (default: auto-detect)
     sample_name = "reference_panel"    // Default sample name for output files
     
     // Chromosome handling
@@ -27,10 +26,6 @@ params {
     chrX_non_par_pattern = null        // For split mode: pattern for X non-PAR
     chrX_par1_pattern = null           // For split mode: pattern for X PAR1
     chrX_par2_pattern = null           // For split mode: pattern for X PAR2
-    
-    // Processing parameters
-    skip_multiallelic = false          // Skip converting multiallelic sites if input is already biallelic
-    sites_only = false                 // Skip site extraction if sites VCF already exists
     
     // Output parameters
     output_dir = "results"             // Output directory
@@ -45,6 +40,7 @@ params {
     max_cpus = 16                      // Maximum CPUs per process
     max_memory = "32 GB"               // Maximum memory per process
     max_time = "24h"                   // Maximum time per process
+    threads = 4                        // Number of threads to use for each process
 }
 
 // Print workflow header with parameters
@@ -54,16 +50,14 @@ def printHeader() {
     MODULAR BGE IMPUTATION REFERENCE PANEL PIPELINE
     ==============================================
     input_pattern        : ${params.input_pattern}
-    input_index_pattern  : ${params.input_index_pattern ?: "auto-detected"}
     sample_name          : ${params.sample_name}
     chromosomes          : ${params.chromosomes}
     chrX_mode            : ${params.chrX_mode}
-    skip_multiallelic    : ${params.skip_multiallelic}
-    sites_only           : ${params.sites_only}
     output_dir           : ${params.output_dir}
     window_size          : ${params.window_size}
     buffer_size          : ${params.buffer_size}
     docker_image         : ${params.docker_image}
+    threads              : ${params.threads}
     """
 }
 
@@ -75,8 +69,8 @@ workflow {
     // Parse chromosome list
     chrList = params.chromosomes.split(',')
     
-    // Validate and prepare input files
-    input_channel = validateInputs(params.input_pattern, params.input_index_pattern, chrList)
+    // Create input channel
+    input_channel = createInputChannel(params.input_pattern, chrList)
     
     // Handle X chromosome in split mode if needed
     if (params.chrX_mode == "split" && chrList.contains("X")) {
@@ -84,22 +78,11 @@ workflow {
         input_channel = chrX_inputs
     }
     
-    // Process inputs through workflow steps
-    if (params.skip_multiallelic) {
-        biallelic_files = input_channel
-    } else {
-        biallelic_files = convertMultiallelic(input_channel)
-    }
+    // Process through conversion
+    biallelic_files = convertMultiallelic(input_channel)
     
-    if (params.sites_only) {
-        site_files = input_channel.map { chr, bcf, index -> 
-            // Assume sites files are named as ${chr}.sites.vcf.gz
-            return tuple(chr, file("${params.output_dir}/sites/${chr}.sites.vcf.gz"), 
-                   file("${params.output_dir}/sites/${chr}.sites.vcf.gz.tbi"))
-        }
-    } else {
-        site_files = extractSiteInfo(biallelic_files)
-    }
+    // Extract site information
+    site_files = extractSiteInfo(biallelic_files)
     
     // Create chunks
     chunk_files = createChunks(site_files)
@@ -124,6 +107,30 @@ workflow {
     createSummary(all_panels.collect())
 }
 
+// Function to create input channel from file pattern
+def createInputChannel(input_pattern, chrList) {
+    if (input_pattern == null) {
+        error "Input pattern must be specified using --input_pattern parameter"
+    }
+    
+    return Channel.fromPath(input_pattern)
+        .map { bcf -> 
+            def chr = bcf.name.toString().replaceAll(/.*chr/, "").replaceAll(/\..*/, "")
+            
+            // Check if index exists, if not assume it has the same name with .csi extension
+            def index = file("${bcf}.csi").exists() ? file("${bcf}.csi") : null
+            
+            // If index not found, try creating it using the error message
+            if (index == null) {
+                log.warn "Index for ${bcf} not found, will be created during processing"
+                index = file("${bcf}.csi")
+            }
+            
+            return tuple(chr, bcf, index)
+        }
+        .filter { chr, bcf, index -> chr in chrList }
+}
+
 // Function to handle X chromosome in split mode
 def handleChrX(input_channel, chrList) {
     // Remove X from standard processing
@@ -134,24 +141,21 @@ def handleChrX(input_channel, chrList) {
         // Create channel for X non-PAR
         chrX_non_par = Channel.fromPath(params.chrX_non_par_pattern)
             .map { bcf -> 
-                def index = file("${bcf}.csi").exists() ? file("${bcf}.csi") : 
-                            file("${bcf}.tbi").exists() ? file("${bcf}.tbi") : null
+                def index = file("${bcf}.csi").exists() ? file("${bcf}.csi") : null
                 return tuple("X_non_par", bcf, index)
             }
             
         // Create channel for X PAR1
         chrX_par1 = Channel.fromPath(params.chrX_par1_pattern)
             .map { bcf -> 
-                def index = file("${bcf}.csi").exists() ? file("${bcf}.csi") : 
-                            file("${bcf}.tbi").exists() ? file("${bcf}.tbi") : null
+                def index = file("${bcf}.csi").exists() ? file("${bcf}.csi") : null
                 return tuple("X_par1", bcf, index)
             }
             
         // Create channel for X PAR2
         chrX_par2 = Channel.fromPath(params.chrX_par2_pattern)
             .map { bcf -> 
-                def index = file("${bcf}.csi").exists() ? file("${bcf}.csi") : 
-                            file("${bcf}.tbi").exists() ? file("${bcf}.tbi") : null
+                def index = file("${bcf}.csi").exists() ? file("${bcf}.csi") : null
                 return tuple("X_par2", bcf, index)
             }
             
