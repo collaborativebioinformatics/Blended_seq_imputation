@@ -1,10 +1,18 @@
 #!/usr/bin/env nextflow
 
-// Modular Imputation Reference Panel Pipeline
+// Modular BGE Imputation Reference Panel Pipeline
 // Date: 2025-03-04
 
 // Enable DSL2 for modularity
 nextflow.enable.dsl=2
+
+// Import modules
+include { validateInputs } from './modules/validate_inputs'
+include { convertMultiallelic } from './modules/convert_multiallelic'
+include { extractSiteInfo } from './modules/extract_site_info'
+include { createChunks } from './modules/create_chunks'
+include { splitReference } from './modules/split_reference'
+include { createSummary } from './modules/create_summary'
 
 // Default parameters
 params {
@@ -39,15 +47,6 @@ params {
     max_time = "24h"                   // Maximum time per process
 }
 
-// Validate required parameters
-if (params.input_pattern == null) {
-    error "Input pattern must be specified using --input_pattern parameter"
-}
-
-// Process input parameters 
-// Parse chromosome list
-def chrList = params.chromosomes.split(',')
-
 // Print workflow header with parameters
 def printHeader() {
     log.info """
@@ -68,253 +67,119 @@ def printHeader() {
     """
 }
 
-// Print header
-printHeader()
-
-// Define modules
-
-// Module: Convert multiallelic to biallelic
-process convertMultiallelicToBiallelic {
-    tag "chr${chr}"
-    container params.docker_image
-    publishDir "${params.output_dir}/biallelic", mode: params.publish_mode
-    
-    input:
-    tuple val(chr), path(bcf_file), path(bcf_index)
-    
-    output:
-    tuple val(chr), path("${chr}.biallelic.bcf"), path("${chr}.biallelic.bcf.csi")
-    
-    script:
-    """
-    bcftools norm -m-any -Ob -o ${chr}.biallelic.bcf ${bcf_file}
-    bcftools index ${chr}.biallelic.bcf
-    
-    """
-    
-}
-
-// Module: Extract site information
-process extractSiteInfo {
-    tag "chr${chr}"
-    container params.docker_image
-    publishDir "${params.output_dir}/sites", mode: params.publish_mode
-    
-    input:
-    tuple val(chr), path(bcf_file), path(bcf_index)
-    
-    output:
-    tuple val(chr), path("${chr}.sites.vcf.gz"), path("${chr}.sites.vcf.gz.tbi")
-    
-    script:
-    """
-    bcftools view -G -m2 -M2 -v snps,indels -Oz -o ${chr}.sites.vcf.gz ${bcf_file}
-    tabix -p vcf ${chr}.sites.vcf.gz
-    """
-}
-
-// Module: Create chunks using GLIMPSE2_chunk
-process createChunks {
-    tag "chr${chr}"
-    container params.docker_image
-    publishDir "${params.output_dir}/chunks", mode: params.publish_mode
-    
-    input:
-    tuple val(chr), path(sites_vcf), path(sites_vcf_index)
-    
-    output:
-    tuple val(chr), path("${chr}.chunks.txt")
-    
-    script:
-    def chr_id = chr == "X" ? "X" : chr
-    """
-    GLIMPSE2_chunk --input ${sites_vcf} --region ${chr_id} --window-size ${params.window_size} --buffer-size ${params.buffer_size} --output ${chr}.chunks.txt
-    """
-}
-
-// Module: Split reference into binary chunks
-process splitReferenceIntoChunks {
-    tag "chr${chr}_chunk${chunk_id}"
-    container params.docker_image
-    publishDir "${params.output_dir}/reference_panels", mode: params.publish_mode
-    
-    input:
-    tuple val(chr), val(chunk_id), val(region), path(bcf_file), path(bcf_index)
-    
-    output:
-    tuple val(chr), val(chunk_id), path("${params.sample_name}.${chr}.${chunk_id}.bin")
-    
-    script:
-    """
-    GLIMPSE2_split_reference --input ${bcf_file} --region ${region} --output ${params.sample_name}.${chr}.${chunk_id}.bin
-    """
-}
-
-// Module: Summarize results
-process summarizeResults {
-    tag "summary"
-    container params.docker_image
-    publishDir "${params.output_dir}", mode: params.publish_mode
-    
-    input:
-    path('panels/*')
-    
-    output:
-    path("reference_panel_summary.txt")
-    
-    script:
-    """
-    echo "Reference Panel Summary" > reference_panel_summary.txt
-    echo "======================" >> reference_panel_summary.txt
-    echo "Total panels: \$(ls panels/ | wc -l)" >> reference_panel_summary.txt
-    echo "Panels by chromosome:" >> reference_panel_summary.txt
-    for chr in \$(ls panels/ | cut -d'.' -f2 | sort -u); do
-        count=\$(ls panels/ | grep ".\${chr}." | wc -l)
-        echo "  Chromosome \${chr}: \${count} panels" >> reference_panel_summary.txt
-    done
-    echo "======================" >> reference_panel_summary.txt
-    echo "Panel details:" >> reference_panel_summary.txt
-    ls -lh panels/ >> reference_panel_summary.txt
-    """
-}
-
-// Sub-workflow: Process single chromosome
-workflow processChr {
-    take:
-        chr_channel
-    
-    main:
-        // Apply appropriate workflow based on parameters
-        if (params.skip_multiallelic) {
-            biallelic_files = chr_channel
-        } else {
-            biallelic_files = convertMultiallelicToBiallelic(chr_channel)
-        }
-        
-        if (params.sites_only) {
-            site_files = chr_channel.map { chr, bcf, index -> 
-                // Assume sites files are named as ${chr}.sites.vcf.gz
-                return tuple(chr, file("${params.output_dir}/sites/${chr}.sites.vcf.gz"), file("${params.output_dir}/sites/${chr}.sites.vcf.gz.tbi"))
-            }
-        } else {
-            site_files = extractSiteInfo(biallelic_files)
-        }
-        
-        chunk_files = createChunks(site_files)
-        
-        // Parse chunks file to get regions
-        chunk_regions = chunk_files.flatMap { chr, chunks_file ->
-            def lines = chunks_file.readLines()
-            def result = []
-            
-            for (int i = 1; i < lines.size(); i++) {  // Skip header line
-                def fields = lines[i].split()
-                // chunk_id, contig, physical_pos_start, physical_pos_end, ...
-                def chunk_id = fields[0]
-                def region = fields[2]
-                result << tuple(chr, chunk_id, region)
-            }
-            
-            return result
-        }
-        
-        // Combine with biallelic files to prepare for splitting
-        split_inputs = chunk_regions.combine(biallelic_files, by: 0)
-            .map { chr, chunk_id, region, bcf, index -> 
-                tuple(chr, chunk_id, region, bcf, index)
-            }
-        
-        // Split reference
-        reference_panels = splitReferenceIntoChunks(split_inputs)
-    
-    emit:
-        reference_panels
-}
-
 // Main workflow
 workflow {
-    // Create channel for input files
-    if (params.input_index_pattern) {
-        // If index pattern is provided
-        Channel.fromFilePairs("${params.input_pattern};${params.input_index_pattern}", size: 2)
-            .map { pattern, files -> 
-                def chr = pattern.replaceAll(/.*chr/, "").replaceAll(/\..*/, "")
-                return tuple(chr, files[0], files[1])
-            }
-            .filter { chr, bcf, index -> chr in chrList }
-            .set { input_files }
-    } else {
-        // Auto-detect index files
-        Channel.fromPath(params.input_pattern)
-            .map { bcf -> 
-                def chr = bcf.name.toString().replaceAll(/.*chr/, "").replaceAll(/\..*/, "")
-                def index = file("${bcf}.csi").exists() ? file("${bcf}.csi") : 
-                            file("${bcf}.tbi").exists() ? file("${bcf}.tbi") : null
-                if (index == null) {
-                    error "Cannot find index for ${bcf}. Please provide index or generate it."
-                }
-                return tuple(chr, bcf, index)
-            }
-            .filter { chr, bcf, index -> chr in chrList }
-            .set { input_files }
+    // Print header
+    printHeader()
+    
+    // Parse chromosome list
+    chrList = params.chromosomes.split(',')
+    
+    // Validate and prepare input files
+    input_channel = validateInputs(params.input_pattern, params.input_index_pattern, chrList)
+    
+    // Handle X chromosome in split mode if needed
+    if (params.chrX_mode == "split" && chrList.contains("X")) {
+        chrX_inputs = handleChrX(input_channel, chrList)
+        input_channel = chrX_inputs
     }
     
-    // Handle X chromosome in split mode
-    if (params.chrX_mode == "split" && chrList.contains("X")) {
-        // Remove X from standard processing
-        input_files = input_files.filter { chr, bcf, index -> chr != "X" }
-        
-        // Create channels for X chromosome parts
-        if (params.chrX_non_par_pattern && params.chrX_par1_pattern && params.chrX_par2_pattern) {
-            // Create channel for X non-PAR
-            Channel.fromPath(params.chrX_non_par_pattern)
-                .map { bcf -> 
-                    def index = file("${bcf}.csi").exists() ? file("${bcf}.csi") : 
-                                file("${bcf}.tbi").exists() ? file("${bcf}.tbi") : null
-                    return tuple("X_non_par", bcf, index)
-                }
-                .set { chrX_non_par }
-                
-            // Create channel for X PAR1
-            Channel.fromPath(params.chrX_par1_pattern)
-                .map { bcf -> 
-                    def index = file("${bcf}.csi").exists() ? file("${bcf}.csi") : 
-                                file("${bcf}.tbi").exists() ? file("${bcf}.tbi") : null
-                    return tuple("X_par1", bcf, index)
-                }
-                .set { chrX_par1 }
-                
-            // Create channel for X PAR2
-            Channel.fromPath(params.chrX_par2_pattern)
-                .map { bcf -> 
-                    def index = file("${bcf}.csi").exists() ? file("${bcf}.csi") : 
-                                file("${bcf}.tbi").exists() ? file("${bcf}.tbi") : null
-                    return tuple("X_par2", bcf, index)
-                }
-                .set { chrX_par2 }
-                
-            // Combine X parts with autosomal inputs
-            input_files
-                .mix(chrX_non_par)
-                .mix(chrX_par1)
-                .mix(chrX_par2)
-                .set { all_inputs }
-        } else {
-            log.warn "X chromosome split mode enabled but patterns not provided, using standard mode for X"
-            all_inputs = input_files
+    // Process inputs through workflow steps
+    if (params.skip_multiallelic) {
+        biallelic_files = input_channel
+    } else {
+        biallelic_files = convertMultiallelic(input_channel)
+    }
+    
+    if (params.sites_only) {
+        site_files = input_channel.map { chr, bcf, index -> 
+            // Assume sites files are named as ${chr}.sites.vcf.gz
+            return tuple(chr, file("${params.output_dir}/sites/${chr}.sites.vcf.gz"), 
+                   file("${params.output_dir}/sites/${chr}.sites.vcf.gz.tbi"))
         }
     } else {
-        all_inputs = input_files
+        site_files = extractSiteInfo(biallelic_files)
     }
     
-    // Process each chromosome
-    reference_panels = processChr(all_inputs)
+    // Create chunks
+    chunk_files = createChunks(site_files)
+    
+    // Parse chunk files to get regions
+    chunk_regions = parseChunkFiles(chunk_files)
+    
+    // Combine with biallelic files to prepare for splitting
+    split_inputs = chunk_regions.combine(biallelic_files, by: 0)
+        .map { chr, chunk_id, region, bcf, index -> 
+            tuple(chr, chunk_id, region, bcf, index)
+        }
+    
+    // Split reference
+    reference_panels = splitReference(split_inputs)
     
     // Collect all panels for summary
-    reference_panels.map { chr, chunk_id, panel -> panel }
+    all_panels = reference_panels.map { chr, chunk_id, panel -> panel }
         .collect()
-        .set { all_panels }
     
     // Generate summary
-    summarizeResults(all_panels.collect())
+    createSummary(all_panels.collect())
+}
+
+// Function to handle X chromosome in split mode
+def handleChrX(input_channel, chrList) {
+    // Remove X from standard processing
+    standard_channel = input_channel.filter { chr, bcf, index -> chr != "X" }
+    
+    // Create channels for X chromosome parts if patterns are provided
+    if (params.chrX_non_par_pattern && params.chrX_par1_pattern && params.chrX_par2_pattern) {
+        // Create channel for X non-PAR
+        chrX_non_par = Channel.fromPath(params.chrX_non_par_pattern)
+            .map { bcf -> 
+                def index = file("${bcf}.csi").exists() ? file("${bcf}.csi") : 
+                            file("${bcf}.tbi").exists() ? file("${bcf}.tbi") : null
+                return tuple("X_non_par", bcf, index)
+            }
+            
+        // Create channel for X PAR1
+        chrX_par1 = Channel.fromPath(params.chrX_par1_pattern)
+            .map { bcf -> 
+                def index = file("${bcf}.csi").exists() ? file("${bcf}.csi") : 
+                            file("${bcf}.tbi").exists() ? file("${bcf}.tbi") : null
+                return tuple("X_par1", bcf, index)
+            }
+            
+        // Create channel for X PAR2
+        chrX_par2 = Channel.fromPath(params.chrX_par2_pattern)
+            .map { bcf -> 
+                def index = file("${bcf}.csi").exists() ? file("${bcf}.csi") : 
+                            file("${bcf}.tbi").exists() ? file("${bcf}.tbi") : null
+                return tuple("X_par2", bcf, index)
+            }
+            
+        // Combine X parts with standard inputs
+        return standard_channel
+            .mix(chrX_non_par)
+            .mix(chrX_par1)
+            .mix(chrX_par2)
+    } else {
+        log.warn "X chromosome split mode enabled but patterns not provided, using standard mode for X"
+        return input_channel
+    }
+}
+
+// Function to parse chunk files
+def parseChunkFiles(chunk_files) {
+    return chunk_files.flatMap { chr, chunks_file ->
+        def lines = chunks_file.readLines()
+        def result = []
+        
+        for (int i = 1; i < lines.size(); i++) {  // Skip header line
+            def fields = lines[i].split()
+            // chunk_id, contig, physical_pos_start, physical_pos_end, ...
+            def chunk_id = fields[0]
+            def region = fields[2]
+            result << tuple(chr, chunk_id, region)
+        }
+        
+        return result
+    }
 }
