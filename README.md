@@ -1,42 +1,33 @@
 # Blended_seq_imputation
 ### Contributors
 * Phil Greer
-* Kara 
 * Tien Ly
 * Yuning Zheng
+* Gobikrishnan Subramaniam
 
 ## Introduction
 
-Blended Genome Exome sequencing is a new method developed by the Broad to aquire both low pass whole genome sequencing data (~3x depth) with 30x 
-Whole exome sequencing data on a combined sequencing platform. Unlike array data, BGE and low pass WGS are ancestry agnostic in that the 
-variants information from the sample is not a pre determined set of probes generated fro prior ancestry specific data. Both low pass WGS and BGE 
-sequencing data requires an imputation step to get reliable variant calls for commoon variants across the whole genome. Imputation is dependent on 
-high quality reference panels consisting of large samples of diverse ancestry. In this project, we will generate a nextflow workflow to generate an 
-imputation reference panel on large scale cohort files. 
+Blended Genome Exome (BGE) sequencing is an innovative approach developed by the Broad Institute that integrates low-pass whole genome sequencing (WGS) at approximately 3x coverage with 30x coverage whole exome sequencing (WES) on a unified sequencing platform. Unlike traditional genotyping arrays, BGE and low-pass WGS are not limited by predefined probe sets based on specific ancestral data, making them more inclusive for diverse populations. To obtain accurate variant calls for common variants across the genome, both BGE and low-pass WGS data require an imputation step, which relies on high-quality reference panels comprising large, ancestrally diverse samples. In this project, we aim to develop a Nextflow workflow to construct such an imputation reference panel using extensive cohort datasets, leveraging resources like the 1000 Genomes Project (1kGP) and the Human Genome Diversity Project (HGDP), which have been harmonized to create a comprehensive resource of deeply sequenced human genomes.
 
 ## Methods
-Phased WGS data that includes multiple ancestries is needed to build an adequate reference panel. 
-Using the Human Genome Diversity Project + 1000 Genomes combined, phased dataset, we have implemented a nextflow pipeline consisting of 4 steps. 
 
-1) Convert all multiallelic site to biallelic sites, keeping both SNPs and indels.
+Building upon [GLIMPSE2's tutorial](https://odelaneau.github.io/GLIMPSE/docs/tutorials/getting_started/), which provides bash script snippets for generating reference panels from a single chromosome (specifically, chromosome 22 of the 1000 Genomes Project b38 data from the EBI FTP site), we developed a scalable Nextflow pipeline capable of processing all chromosomes in our dataset. Due to the complexities associated with chromosome X, it was excluded from this project.
 
-2) extract the site information for the entire cohort. 
+Our pipeline utilizes the combined, phased dataset from the HGDP and the 1000 Genomes Project, available in the gnomAD public cloud folders on [Google Cloud Platform](gs://gcp-public-data--gnomad/resources/hgdp_1kg/phased_haplotypes_v2) and [AWS](s3://gnomad-public-us-east-1/resources/hgdp_1kg/phased_haplotypes_v2). The pipeline comprises four main steps:
 
-3) chunk out the reference data using GLIPMSE2_chunk. 
+1) Conversion of multiallelic sites: Transform all multiallelic sites into biallelic sites, retaining both single nucleotide polymorphisms (SNPs) and insertions/deletions (indels)
 
-4) split out the reference chromosomes into binary chuks for all chromosomes.
+2) Extraction of site information: Extract site information for the entire cohort
 
-Possible testing based on available BGE data
+3) Chunking reference data: Divide the reference data using GLIMPSE2_chunk
 
-Software used includes bcftools (https://samtools.github.io/bcftools/) and Glimpse2 (https://odelaneau.github.io/GLIMPSE/)
+4) Splitting reference chromosomes: Segment the reference chromosomes into binary chunks for all chromosomes
 
-### Data
-Four our inital test. we will be using the Human Genome Diversity Project + 1000 Genomes combined dataset. The phased version of the dataset can be 
-found on the gnomAD publis cloud folders on Google: gs://gcp-public-data--gnomad/resources/hgdp_1kg/phased_haplotypes_v2 and on AWS: 
-s3://gnomad-public-us-east-1/resources/hgdp_1kg/phased_haplotypes_v2
+The software tools employed include [bcftools](https://samtools.github.io/bcftools/), [GLIMPSE2](https://odelaneau.github.io/GLIMPSE/), [Nextflow](https://github.com/nextflow-io/nextflow), and [Docker](https://github.com/docker).
 
 ### Workflow
 ![flowchart](figures/flowchart.png)
+
 ## Results
 
 ## Discussion
